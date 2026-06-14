@@ -1,0 +1,415 @@
+import React, { useState, useEffect, useRef } from "react";
+
+const PINK = "#e91e8c";
+const PINK_SOFT = "#fff0f6";
+const PINK_BG = "#fce4ec";
+// Dark theme palette
+const DARK_BG = "#031023";
+const PAGE_BG_GRADIENT = "linear-gradient(180deg,#041225,#021024)";
+const PANEL_BG = "#061226";
+const CARD_BG = "#071428";
+const TEXT_LIGHT = "#e6f7ff";
+const MUTED = "#9fb3c8";
+const NEON = "#00e5ff";
+
+/* ══════════════════════════════════
+   SHARED COMPONENTS
+══════════════════════════════════ */
+
+function ECGCanvas({ height = 110 }) {
+  const ref = useRef(null);
+  const frame = useRef(0);
+  const data = useRef(Array(300).fill(0));
+  useEffect(() => {
+    const c = ref.current; if (!c) return;
+    const ctx = c.getContext("2d");
+    let id;
+    const seg = t => {
+      t = t % 1;
+      if (t < .15) return Math.sin(t / .15 * Math.PI) * .1;
+      if (t < .22) return -.06;
+      if (t < .28) return Math.sin((t - .22) / .06 * Math.PI) * .9;
+      if (t < .35) return -Math.sin((t - .28) / .07 * Math.PI) * .28;
+      if (t < .55) return Math.sin((t - .35) / .20 * Math.PI) * .15;
+      return 0;
+    };
+    const draw = () => {
+      frame.current++;
+      data.current.push(seg(frame.current * .007) + (Math.random() - .5) * .012);
+      if (data.current.length > 300) data.current.shift();
+      const w = c.width;
+      ctx.clearRect(0, 0, w, height);
+      ctx.fillStyle = "#fff8fb";
+      ctx.fillRect(0, 0, w, height);
+      ctx.strokeStyle = "rgba(233,30,140,0.07)";
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x < w; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke(); }
+      for (let y = 0; y < height; y += 20) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+      const d = data.current, step = w / d.length, mid = height / 2, amp = height * .38;
+      ctx.strokeStyle = PINK; ctx.lineWidth = 2;
+      ctx.shadowColor = PINK; ctx.shadowBlur = 4;
+      ctx.beginPath();
+      d.forEach((v, i) => i === 0 ? ctx.moveTo(0, mid - v * amp) : ctx.lineTo(i * step, mid - v * amp));
+      ctx.stroke();
+      id = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => cancelAnimationFrame(id);
+  }, [height]);
+  return <canvas ref={ref} width={700} height={height} style={{ width:"100%", height, borderRadius:8, display:"block" }} />;
+}
+
+function Spark({ data, color = PINK, h = 28 }) {
+  if (!data || data.length < 2) return null;
+  const w = 80, mn = Math.min(...data), mx = Math.max(...data), rng = mx - mn || 1;
+  const pts = data.map((v,i) => `${(i/(data.length-1))*w},${h-((v-mn)/rng)*(h-4)-2}`).join(" ");
+  return <svg width={w} height={h}><polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+}
+
+function ProbBar({ label, value, color }) {
+  return (
+    <div style={{ marginBottom:10 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+        <span style={{ fontSize:12, color:"#555" }}>{label}</span>
+        <span style={{ fontSize:12, fontWeight:700, color }}>{Math.round(value)}%</span>
+      </div>
+      <div style={{ height:6, borderRadius:3, background:"#f5e6f0" }}>
+        <div style={{ height:"100%", width:`${value}%`, borderRadius:3, background:color, transition:"width 1s ease" }}/>
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({ s }) {
+  const map = { Normal:{bg:"#e8f5e9",c:"#2e7d32"}, Warning:{bg:"#fff8e1",c:"#f57f17"}, Critical:{bg:"#ffebee",c:"#c62828"} };
+  const {bg,c} = map[s]||map.Normal;
+  return <span style={{ fontSize:10, background:bg, color:c, padding:"2px 8px", borderRadius:10, fontWeight:600 }}>{s}</span>;
+}
+
+function GaugeRing({ value, max, color, label, unit, size=80 }) {
+  const r=30, circ=2*Math.PI*r, pct=Math.min(value/max,1), dash=pct*circ;
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+      <svg width={size} height={size} viewBox="0 0 80 80">
+        <circle cx="40" cy="40" r={r} fill="none" stroke="#f5e6f0" strokeWidth="6"/>
+        <circle cx="40" cy="40" r={r} fill="none" stroke={color} strokeWidth="6"
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" transform="rotate(-90 40 40)"/>
+        <text x="40" y="42" textAnchor="middle" dominantBaseline="middle" fill={color} fontSize="13" fontWeight="700">{Math.round(value)}</text>
+        <text x="40" y="54" textAnchor="middle" fill="#aaa" fontSize="8">{unit}</text>
+      </svg>
+      <span style={{ fontSize:10, color="#aaa" }}>{label}</span>
+    </div>
+  );
+}
+
+function MiniLineChart({ data, color, label }) {
+  if (!data||data.length<2) return null;
+  const w=180,h=52,mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1;
+  const pts=data.map((v,i)=>`${(i/(data.length-1))*w},${h-8-((v-mn)/rng)*(h-16)}`).join(" ");
+  const fillPts=`0,${h} `+pts+` ${w},${h}`;
+  return (
+    <div>
+      <div style={{ fontSize:11, color:"#aaa", marginBottom:4 }}>{label}</div>
+      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+        <defs><linearGradient id={`g${label.replace(/\s/g,"")}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.2"/><stop offset="100%" stopColor={color} stopOpacity="0"/></linearGradient></defs>
+        <polygon points={fillPts} fill={`url(#g${label.replace(/\s/g,"")})`}/>
+        <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════
+   VIRTUAL PATIENT BODY (CSS)
+══════════════════════════════════ */
+
+function OrganDot({ id, label, color, selected, onSelect, style, stressed }) {
+  const isSel = selected === id;
+  const c = stressed ? "#ef5350" : color;
+  return (
+    <div onClick={() => onSelect(isSel ? null : id)} title={label} style={{
+      position:"absolute", display:"flex", flexDirection:"column", alignItems:"center",
+      cursor:"pointer", zIndex:10, ...style
+    }}>
+      <div style={{
+        width: isSel ? 36 : 28, height: isSel ? 36 : 28,
+        borderRadius:"50%",
+        background: `radial-gradient(circle at 35% 35%, ${c}cc, ${c}66)`,
+        border: `2px solid ${c}`,
+        boxShadow: isSel ? `0 0 0 3px ${c}44, 0 0 16px ${c}88` : `0 2px 8px ${c}44`,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        transition:"all 0.2s",
+        animation: stressed ? "organPulse 1s infinite" : "none",
+      }}>
+        <span style={{ fontSize: isSel ? 14 : 11 }}>{
+          id==="brain"?"🧠":id==="heart"?"❤️":id==="llung"||id==="rlung"?"🫁":
+          id==="liver"?"🟫":id==="stomach"?"🟡":id==="kidney_l"||id==="kidney_r"?"🟣":"🟢"
+        }</span>
+      </div>
+      <span style={{
+        fontSize:9, fontWeight:700, color: c, marginTop:2,
+        background:PANEL_BG, borderRadius:4, padding:"1px 4px",
+        boxShadow:`0 6px 14px ${NEON}11`, whiteSpace:"nowrap",
+        opacity: isSel ? 1 : 0.85
+      }}>{label}</span>
+    </div>
+  );
+}
+
+function VirtualPatient({ stressed, selected, onSelect }) {
+  const skin = "#FDDBB4";
+  const skinD = "#F4C28A";
+  const skinDark = "#e8a870";
+
+  return (
+    <div style={{ position:"relative", width:220, height:480, margin:"0 auto", userSelect:"none" }}>
+      <style>{`
+        @keyframes organPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
+        @keyframes heartbeat { 0%,100%{transform:scale(1)} 15%{transform:scale(1.12)} 30%{transform:scale(1)} 45%{transform:scale(1.08)} }
+      `}</style>
+
+      {/* ── HEAD ── */}
+      <div style={{
+        position:"absolute", left:"50%", transform:"translateX(-50%)",
+        top:0, width:80, height:90,
+        background:`radial-gradient(ellipse at 40% 35%, ${skin}, ${skinD})`,
+        borderRadius:"50% 50% 45% 45%",
+        boxShadow:`2px 4px 12px rgba(0,0,0,.15), inset -4px -4px 12px ${skinDark}44`,
+        zIndex:5,
+      }}>
+        {/* hair */}
+        <div style={{ position:"absolute", top:-6, left:6, right:6, height:30,
+          background:"#6d4c41", borderRadius:"50% 50% 0 0",
+          boxShadow:"inset 0 -4px 8px rgba(0,0,0,.2)" }}/>
+        {/* face features */}
+        <div style={{ position:"absolute", top:32, left:16, width:12, height:7,
+          background:"#5d4037", borderRadius:"50% 50% 0 0" }}/>
+        <div style={{ position:"absolute", top:32, right:16, width:12, height:7,
+          background:"#5d4037", borderRadius:"50% 50% 0 0" }}/>
+        <div style={{ position:"absolute", top:36, left:18, width:8, height:5,
+          background:"#1a237e", borderRadius:"50%" }}/>
+        <div style={{ position:"absolute", top:36, right:18, width:8, height:5,
+          background:"#1a237e", borderRadius:"50%" }}/>
+        {/* nose */}
+        <div style={{ position:"absolute", top:48, left:"50%", transform:"translateX(-50%)",
+          width:8, height:8, background:skinDark, borderRadius:"0 0 50% 50%" }}/>
+        {/* mouth */}
+        <div style={{ position:"absolute", top:60, left:"50%", transform:"translateX(-50%)",
+          width:22, height:6, borderBottom:`2.5px solid ${skinDark}`,
+          borderRadius:"0 0 50% 50%" }}/>
+        {/* ears */}
+        <div style={{ position:"absolute", top:30, left:-8, width:10, height:16,
+          background:skinD, borderRadius:"50%", boxShadow:`inset 2px 0 4px ${skinDark}66` }}/>
+        <div style={{ position:"absolute", top:30, right:-8, width:10, height:16,
+          background:skinD, borderRadius:"50%", boxShadow:`inset -2px 0 4px ${skinDark}66` }}/>
+      </div>
+
+      {/* ── NECK ── */}
+      <div style={{
+        position:"absolute", left:"50%", transform:"translateX(-50%)",
+        top:84, width:28, height:24,
+        background:`linear-gradient(180deg, ${skin}, ${skinD})`,
+        borderRadius:"4px 4px 0 0",
+        boxShadow:`inset -2px 0 6px ${skinDark}44`,
+        zIndex:4,
+      }}/>
+
+      {/* ── TORSO ── */}
+      <div style={{
+        position:"absolute", left:"50%", transform:"translateX(-50%)",
+        top:104, width:110, height:160,
+        background:`linear-gradient(160deg, ${skin} 0%, ${skinD} 60%, ${skinDark} 100%)`,
+        borderRadius:"18px 18px 22px 22px",
+        boxShadow:`4px 8px 20px rgba(0,0,0,.18), inset -6px -8px 18px ${skinDark}55`,
+        zIndex:3,
+      }}>
+        {/* collar bones */}
+        <div style={{ position:"absolute", top:8, left:10, right:10, height:2,
+          background:skinDark, borderRadius:2, opacity:0.4 }}/>
+        {/* chest muscle definition */}
+        <div style={{ position:"absolute", top:18, left:12, width:36, height:34,
+          background:`radial-gradient(ellipse, ${skin}88, transparent)`,
+          borderRadius:"50%", opacity:0.6 }}/>
+        <div style={{ position:"absolute", top:18, right:12, width:36, height:34,
+          background:`radial-gradient(ellipse, ${skin}88, transparent)`,
+          borderRadius:"50%", opacity:0.6 }}/>
+        {/* abs definition */}
+        {[0,1,2].map(i=>(
+          <div key={i} style={{ position:"absolute", top:80+i*22, left:"50%", transform:"translateX(-50%)",
+            width:50, height:16, border:`1px solid ${skinDark}33`,
+            borderRadius:8 }}/>
+        ))}
+        {/* navel */}
+        <div style={{ position:"absolute", bottom:20, left:"50%", transform:"translateX(-50%)",
+          width:8, height:8, background:skinDark, borderRadius:"50%", opacity:0.5 }}/>
+      </div>
+
+      {/* ── LEFT ARM ── */}
+      <div style={{ position:"absolute", left:12, top:108, zIndex:2 }}>
+        {/* upper arm */}
+        <div style={{ width:26, height:80, background:`linear-gradient(170deg,${skin},${skinD})`,
+          borderRadius:"14px 10px 10px 14px",
+          boxShadow:`-2px 4px 10px rgba(0,0,0,.15), inset -4px 0 8px ${skinDark}44`,
+          transformOrigin:"top center", transform:"rotate(8deg)" }}/>
+        {/* elbow */}
+        <div style={{ width:24, height:18, background:skinD, borderRadius:"50%",
+          marginTop:-4, marginLeft:1,
+          boxShadow:`0 2px 6px rgba(0,0,0,.15)` }}/>
+        {/* forearm */}
+        <div style={{ width:22, height:70, background:`linear-gradient(175deg,${skin},${skinD})`,
+          borderRadius:"10px 8px 8px 10px",
+          boxShadow:`-2px 4px 10px rgba(0,0,0,.12)`,
+          transform:"rotate(4deg)", marginLeft:2 }}/>
+        {/* hand */}
+        <div style={{ width:20, height:26, background:`linear-gradient(180deg,${skinD},${skinDark})`,
+          borderRadius:"6px 6px 10px 10px", marginLeft:1,
+          boxShadow:`0 4px 8px rgba(0,0,0,.2)` }}/>
+      </div>
+
+      {/* ── RIGHT ARM ── */}
+      <div style={{ position:"absolute", right:12, top:108, zIndex:2 }}>
+        <div style={{ width:26, height:80, background:`linear-gradient(170deg,${skinD},${skin})`,
+          borderRadius:"10px 14px 14px 10px",
+          boxShadow:`2px 4px 10px rgba(0,0,0,.15), inset 4px 0 8px ${skinDark}44`,
+          transformOrigin:"top center", transform:"rotate(-8deg)" }}/>
+        <div style={{ width:24, height:18, background:skinD, borderRadius:"50%",
+          marginTop:-4, marginLeft:0, boxShadow:`0 2px 6px rgba(0,0,0,.15)` }}/>
+        <div style={{ width:22, height:70, background:`linear-gradient(175deg,${skinD},${skin})`,
+          borderRadius:"8px 10px 10px 8px",
+          boxShadow:`2px 4px 10px rgba(0,0,0,.12)`,
+          transform:"rotate(-4deg)" }}/>
+        <div style={{ width:20, height:26, background:`linear-gradient(180deg,${skinD},${skinDark})`,
+          borderRadius:"6px 6px 10px 10px",
+          boxShadow:`0 4px 8px rgba(0,0,0,.2)` }}/>
+      </div>
+
+      {/* ── HIPS / PELVIS ── */}
+      <div style={{
+        position:"absolute", left:"50%", transform:"translateX(-50%)",
+        top:258, width:120, height:50,
+        background:`linear-gradient(180deg, ${skinD}, ${skinDark})`,
+        borderRadius:"10px 10px 30px 30px",
+        boxShadow:`4px 6px 16px rgba(0,0,0,.18), inset -4px -4px 12px ${skinDark}66`,
+        zIndex:3,
+      }}/>
+
+      {/* ── LEFT LEG ── */}
+      <div style={{ position:"absolute", left:"50%", marginLeft:-54, top:295, zIndex:2 }}>
+        {/* thigh */}
+        <div style={{ width:46, height:100, background:`linear-gradient(175deg,${skin},${skinD})`,
+          borderRadius:"16px 12px 12px 16px",
+          boxShadow:`-2px 6px 14px rgba(0,0,0,.18), inset -4px 0 10px ${skinDark}44` }}/>
+        {/* knee */}
+        <div style={{ width:42, height:22, background:skinD, borderRadius:"50%",
+          marginLeft:2, marginTop:-4, boxShadow:`0 2px 8px rgba(0,0,0,.15)` }}/>
+        {/* shin */}
+        <div style={{ width:38, height:90, background:`linear-gradient(178deg,${skin},${skinD})`,
+          borderRadius:"12px 10px 10px 12px",
+          boxShadow:`-2px 4px 12px rgba(0,0,0,.15)`, marginLeft:2 }}/>
+        {/* foot */}
+        <div style={{ width:44, height:20, background:`linear-gradient(90deg,${skinD},${skinDark})`,
+          borderRadius:"8px 4px 4px 12px",
+          boxShadow:`0 4px 10px rgba(0,0,0,.2)`, marginLeft:-2 }}/>
+      </div>
+
+      {/* ── RIGHT LEG ── */}
+      <div style={{ position:"absolute", left:"50%", marginLeft:8, top:295, zIndex:2 }}>
+        <div style={{ width:46, height:100, background:`linear-gradient(175deg,${skinD},${skin})`,
+          borderRadius:"12px 16px 16px 12px",
+          boxShadow:`2px 6px 14px rgba(0,0,0,.18), inset 4px 0 10px ${skinDark}44` }}/>
+        <div style={{ width:42, height:22, background:skinD, borderRadius:"50%",
+          marginTop:-4, boxShadow:`0 2px 8px rgba(0,0,0,.15)` }}/>
+        <div style={{ width:38, height:90, background:`linear-gradient(178deg,${skinD},${skin})`,
+          borderRadius:"10px 12px 12px 10px",
+          boxShadow:`2px 4px 12px rgba(0,0,0,.15)`, marginLeft:2 }}/>
+        <div style={{ width:44, height:20, background:`linear-gradient(90deg,${skinDark},${skinD})`,
+          borderRadius:"4px 8px 12px 4px",
+          boxShadow:`0 4px 10px rgba(0,0,0,.2)` }}/>
+      </div>
+
+      {/* ── CLICKABLE ORGAN DOTS ── */}
+      <OrganDot id="brain"    label="Brain"        color="#e91e8c" stressed={stressed.brain}  selected={selected} onSelect={onSelect} style={{ top:6,   left:"50%", transform:"translateX(-50%)" }}/>
+      <OrganDot id="heart"    label="Heart"        color="#ef5350" stressed={stressed.heart}  selected={selected} onSelect={onSelect} style={{ top:128, left:"50%", marginLeft:-30 }}/>
+      <OrganDot id="llung"    label="L. Lung"      color="#42a5f5" stressed={stressed.lungs}  selected={selected} onSelect={onSelect} style={{ top:134, left:32 }}/>
+      <OrganDot id="rlung"    label="R. Lung"      color="#29b6f6" stressed={stressed.lungs}  selected={selected} onSelect={onSelect} style={{ top:134, right:28 }}/>
+      <OrganDot id="liver"    label="Liver"        color="#66bb6a" stressed={false}           selected={selected} onSelect={onSelect} style={{ top:188, right:30 }}/>
+      <OrganDot id="stomach"  label="Stomach"      color="#ffa726" stressed={false}           selected={selected} onSelect={onSelect} style={{ top:192, left:"50%", marginLeft:-14 }}/>
+      <OrganDot id="kidney_l" label="L. Kidney"    color="#ab47bc" stressed={false}           selected={selected} onSelect={onSelect} style={{ top:228, left:34 }}/>
+      <OrganDot id="kidney_r" label="R. Kidney"    color="#ab47bc" stressed={false}           selected={selected} onSelect={onSelect} style={{ top:228, right:30 }}/>
+      <OrganDot id="intestine"label="Intestine"    color="#26a69a" stressed={false}           selected={selected} onSelect={onSelect} style={{ top:262, left:"50%", transform:"translateX(-50%)" }}/>
+    </div>
+  );
+}
+
+function DigitalTwinLarge({ stress, selected, onSelect }) {
+  const glow = '0 8px 30px rgba(0,229,255,0.12)';
+  return (
+    <div style={{ width:'100%', height:360, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ width:360, height:360, borderRadius:16, position:'relative', overflow:'hidden', boxShadow:glow }}>
+        <svg viewBox="0 0 360 360" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="neonG" x1="0" x2="1"><stop offset="0%" stopColor="#00e5ff" stopOpacity="0.25"/><stop offset="100%" stopColor="#7c4dff" stopOpacity="0.15"/></linearGradient>
+            <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="6" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M20 0 L0 0 0 20" fill="none" stroke="#042033" strokeWidth="0.6"/>
+            </pattern>
+          </defs>
+
+          {/* background grid */}
+          <rect x="0" y="0" width="360" height="360" fill="#041224" />
+          <rect x="0" y="0" width="360" height="360" fill="url(#grid)" opacity="0.6" />
+
+          {/* hologram glow */}
+          <g transform="translate(180,80)">
+            <ellipse cx="0" cy="210" rx="90" ry="18" fill="#001826"/>
+            <ellipse cx="0" cy="210" rx="70" ry="12" fill="#002a3a"/>
+          </g>
+
+          {/* simplified neon body */}
+          <g transform="translate(0,6)" stroke="#00e5ff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#blur)">
+            <path d="M180 40 C165 40,150 60,150 80 L150 120 C150 140,140 150,140 170 L140 220 C140 240,150 260,150 280 L145 305 C180 320,200 320,235 305 L230 280 C230 260,240 240,240 220 L240 170 C240 150,230 140,230 120 L230 80 C230 60,215 40,200 40"/>
+          </g>
+
+          {/* inner lines */}
+          <g transform="translate(0,6)" stroke="#00a8d4" strokeWidth="1" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.7">
+            <path d="M180 60 C170 60,160 75,160 90"/>
+            <path d="M200 60 C210 60,220 75,220 90"/>
+          </g>
+
+          {/* heart icon with glow */}
+          <g transform="translate(165,140)">
+            <circle cx="15" cy="-10" r="16" fill="#ef5350" opacity="0.12"/>
+            <path d="M12 -4 C8 0,5 0,5 -4 C5 -10,12 -12,12 -12 C12 -12,19 -10,19 -4 C19 0,16 0,12 -4 Z" fill="#ef5350" stroke="#ff6b6b" strokeWidth="1"/>
+          </g>
+
+          {/* right-side organ buttons */}
+          <g transform="translate(290,60)">
+            {['Heart','Lungs','Brain','Stomach','Liver','Kidneys'].map((t,i)=> (
+              <g key={t} transform={`translate(0, ${i*44})`}>
+                <rect x="-8" y="-12" width="68" height="28" rx="8" fill="#021825" stroke="#063447"/>
+                <text x="24" y="6" fontSize="10" fill="#7fd7ff" fontWeight="600" textAnchor="middle">{t}</text>
+              </g>
+            ))}
+          </g>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+const ORGAN_INFO = {
+  brain:    { name:"Brain",        status:"Normal",  bpm:null,  detail:"Neural activity stable. No abnormal patterns detected. Stress index: moderate.", color:"#e91e8c" },
+  heart:    { name:"Heart",        status:"Warning", bpm:"94",  detail:"Elevated heart rate detected. Possible arrhythmia risk. Monitor closely.", color:"#ef5350" },
+  llung:    { name:"Left Lung",    status:"Normal",  bpm:null,  detail:"Respiratory rate: 16 breaths/min. SpO₂ 97.4%. Clear lung fields.", color:"#42a5f5" },
+  rlung:    { name:"Right Lung",   status:"Normal",  bpm:null,  detail:"Respiratory rate: 16 breaths/min. SpO₂ 97.4%. Clear lung fields.", color:"#42a5f5" },
+  liver:    { name:"Liver",        status:"Normal",  bpm:null,  detail:"Liver enzymes within normal range. No fatty deposits detected.", color:"#66bb6a" },
+  stomach:  { name:"Stomach",      status:"Normal",  bpm:null,  detail:"Gastric activity normal. Glucose: 95 mg/dL. No digestive anomalies.", color:"#ffa726" },
+  kidney_l: { name:"Left Kidney",  status:"Normal",  bpm:null,  detail:"GFR normal. Creatinine: 0.9 mg/dL. Kidney function optimal.", color:"#ab47bc" },
+  kidney_r: { name:"Right Kidney", status:"Normal",  bpm:null,  detail:"GFR normal. Creatinine: 0.9 mg/dL. Kidney function optimal.", color:"#ab47bc" },
+  intestine:{ name:"Intestine",    status:"Normal",  bpm:null,  detail:"Gut microbiome balanced. Motility normal. No inflammation markers.", color:"#26a69a" },
+};
+
+/* ... rest omitted (backup) ... */
