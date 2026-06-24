@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react'
 
 import Sidebar from './Sidebar'
@@ -18,6 +17,7 @@ import '../../src/styles/tailwind.css'
 export default function FuturisticDashboard() {
 
   const [page, setPage] = useState('Dashboard')
+  const [prediction, setPrediction] = useState(null)
 
   const history = {
     hr: [72, 74, 70, 68, 75, 72, 73]
@@ -33,8 +33,8 @@ export default function FuturisticDashboard() {
 
       {page === 'Dashboard' && (
         <>
-          <CenterPanel history={history} />
-          <RightPanel />
+          <CenterPanel history={history} setPrediction={setPrediction} />
+          <RightPanel prediction={prediction} />
         </>
       )}
 
@@ -69,4 +69,3 @@ export default function FuturisticDashboard() {
     </div>
   )
 }
-
